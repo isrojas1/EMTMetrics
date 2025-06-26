@@ -1,10 +1,9 @@
 from utils import *
 
 def main():
-    SHAPE_ID = 43
     BUS_ID = "buses:712"
 
-    resultados_mysql = shape_points(SHAPE_ID)
+    resultados_mysql = shape_points(get_bus_shape(BUS_ID))
     ruta = [(fila[1], fila[0]) for fila in resultados_mysql]  # (lon, lat)
 
     resultados_influx = bus_positions(BUS_ID)
@@ -33,6 +32,17 @@ def main():
     # (Opcional) Abrir automáticamente en navegador
     import webbrowser
     webbrowser.open('comparacion_posiciones.html')
+
+def main2():
+    bus_id = "buses:712"
+
+    print(f"Retrieving shape ID for bus: {bus_id}")
+    shape_id = get_bus_shape(bus_id)
+
+    if shape_id:
+        print(f"Success! Shape ID for bus {bus_id}: {shape_id}")
+    else:
+        print(f"No shape ID found for bus {bus_id}")
 
 
 if __name__ == "__main__":

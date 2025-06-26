@@ -65,6 +65,109 @@ def bus_positions(bus_id: str):
     return data
 
 
+def get_bus_route(bus_id: str) -> dict:
+    token = os.environ.get("INFLUXDB_TOKEN")
+    org = "opentwins"
+    influx_url = "http://192.168.32.131:30716"
+    client = InfluxDBClient(url=influx_url, token=token, org=org)
+    query_api = client.query_api()
+
+    queryLinea = (
+        'from(bucket: "default")\n'
+        '  |> range(start: -1d)\n'
+        '  |> filter(fn: (r) => r["_measurement"] == "mqtt_consumer")\n'
+        '  |> filter(fn: (r) => r["_field"] == "value_line_properties_code")\n'
+        f'  |> filter(fn: (r) => r["thingId"] == "{bus_id}")\n'
+        '  |> last()\n'
+        '  |> map(fn: (r) => ({\n'
+        '          valor: "lines:" + r._value\n'
+        '        }))\n'
+    )
+
+    querySentido = (
+        'from(bucket: "default")\n'
+        '  |> range(start: -1d)\n'
+        '  |> filter(fn: (r) => r["_measurement"] == "mqtt_consumer")\n'
+        '  |> filter(fn: (r) => r["_field"] == "value_line_properties_direction")\n'
+        f'  |> filter(fn: (r) => r["thingId"] == "{bus_id}")\n'
+        '  |> last()\n'
+        '  |> map(fn: (r) => ({\n'
+        '          valor: "lines:" + r._value\n'
+        '        }))\n'
+    )
+
+    # Fetch linea
+    result_linea = query_api.query(org=org, query=queryLinea)
+    linea = None
+    for table in result_linea:
+        for record in table.records:
+            linea = record.values.get('valor')
+
+    # Fetch sentido
+    result_sentido = query_api.query(org=org, query=querySentido)
+    sentido = None
+    for table in result_sentido:
+        for record in table.records:
+            sentido = record.values.get('valor')
+
+    return {'linea': linea, 'sentido': sentido}
+
+
+def get_bus_shape(bus_id: str) -> int | None:
+    # Get bus route information
+    route_info = get_bus_route(bus_id)
+    if not route_info.get('linea') or not route_info.get('sentido'):
+        return None
+
+    # Extract numeric values from prefixed strings
+    try:
+        linea_value = route_info['linea'].split(':')[-1]  # Extract "123" from "lines:123"
+        sentido_value = route_info['sentido'].split(':')[-1]  # Extract "1" from "lines:1"
+    except (IndexError, TypeError):
+        return None
+
+    try:
+        # Establish database connection
+        conexion = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='tfgautobuses',
+            database='emtdata'
+        )
+
+        if conexion.is_connected():
+            cursor = conexion.cursor()
+            # Use parameterized query to prevent SQL injection
+            query = """
+                SELECT shape_id 
+                FROM trips_summary 
+                WHERE route_id = %s 
+                AND direction_id = %s
+                LIMIT 1
+            """
+            cursor.execute(query, (linea_value, int(sentido_value)))
+            result = cursor.fetchone()
+            if result and result[0] is not None:
+                try:
+                    return int(result[0])
+                except ValueError:
+                    print(f"shape_id '{result[0]}' is not convertible to int.")
+                    return None
+            else:
+                return None
+
+    except mysql.connector.Error as e:
+        print(f"Database error occurred: {e}")
+        return None
+
+    finally:
+        # Ensure proper resource cleanup
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conexion' in locals() and conexion.is_connected():
+            conexion.close()
+
+
 # PROCESSING
 def corregir_posicion_optimizada(ruta, posicion_autobus):
     ruta_float = []
