@@ -2,8 +2,12 @@ from utils import *
 
 def main():
     BUS_ID = "buses:712"
+    bus_shape = get_bus_shape(BUS_ID)
 
-    resultados_mysql = shape_points(get_bus_shape(BUS_ID))
+    print(f"Bus id: {BUS_ID}")
+    print(f"Bus shape detectado: {bus_shape}")
+
+    resultados_mysql = shape_points(bus_shape)
     ruta = [(fila[1], fila[0]) for fila in resultados_mysql]  # (lon, lat)
 
     resultados_influx = bus_positions(BUS_ID)
@@ -25,13 +29,17 @@ def main():
         segmento=segmento
     )
 
+    relative_path = 'target/comparacion_posiciones.html'
+    absolute_path = os.path.abspath(relative_path)
+
     # Guardar y mostrar mapa
-    mapa.save('comparacion_posiciones.html')
-    print("Mapa guardado como 'comparacion_posiciones.html'")
+    mapa.save(relative_path)
+    print(f"Mapa guardado como '{absolute_path}'")
 
     # (Opcional) Abrir automáticamente en navegador
     import webbrowser
-    webbrowser.open('comparacion_posiciones.html')
+    webbrowser.open(f'file://{absolute_path}')
+
 
 def main2():
     bus_id = "buses:712"
