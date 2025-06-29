@@ -8,6 +8,8 @@ from libs.mysql_manager import MySQLManager
 import libs.calculations as calcs
 from folium.plugins import AntPath
 
+from src.emtmetrics.libs.calculations import interpolate_point
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +39,7 @@ def main():
     influxdb_manager = InfluxDBManager("http://192.168.32.131:30716", "opentwins")
     mysql_manager = MySQLManager("127.0.0.1", "root", "tfgautobuses", "emtdata")
 
-    BUS_ID = "buses:725"
+    BUS_ID = "buses:617"
     logger.info(f"Starting processing for bus: {BUS_ID}")
 
     try:
@@ -55,6 +57,7 @@ def main():
             logger.error("No route points found in database. Exiting.")
             sys.exit(1)
         route = [(row[1], row[0]) for row in shape_points]  # (lon, lat)
+        disance_traveled_list = [row[3] for row in shape_points]
 
         # Get bus positions from InfluxDB
         bus_positions = influxdb_manager.bus_positions(BUS_ID)
@@ -109,7 +112,7 @@ def main():
         speed = distance_traveled_in_section / time_passed_in_section_secs # m/s
         logger.info(f"Average speed: {speed} m/s or {speed * 3.6} km/h")
 
-        # Posicion a predecir dist_traveled
+        # Predict time to achieve bus_positions[-1]
         point_to_predict = (bus_positions[-1]['longitude'], bus_positions[-1]['latitude'])
         point_to_predict_corrected, _, segment_to_predict = calcs.correct_position(shape_points, point_to_predict)
 
@@ -128,6 +131,21 @@ def main():
         tiempo_predicho = distancia_por_recorrer / speed
         logger.info(f"Predicted time: {tiempo_predicho} secs or {tiempo_predicho / 60} mins")
 
+        # Predict bus_positions[-1] at its time
+        time_passed_to_next_position = bus_positions[-1]['time'] - bus_positions[-2]['time']
+        time_passed_to_next_position_secs = time_passed_to_next_position.total_seconds()
+        distance_traveled_to_next_position = speed * time_passed_to_next_position_secs
+        absolute_distance_traveled_to_next_position = absolute_last_point_distance + distance_traveled_to_next_position
+        left_distance, right_distance = calcs.find_surrounding_distances(disance_traveled_list, absolute_distance_traveled_to_next_position)
+        left_point = mysql_manager.get_coordinates(bus_shape, left_distance)
+        right_point = mysql_manager.get_coordinates(bus_shape, right_distance)
+        latitude_predicted, longitude_predicted = interpolate_point(float(left_point[0]), float(left_point[1]), float(left_distance),
+                                                                    float(right_point[0]), float(right_point[1]), float(right_distance),
+                                                                    float(absolute_distance_traveled_to_next_position))
+
+        logger.info(
+            f"Predicted position {time_passed_to_next_position_secs} seconds in: ({latitude_predicted}, {longitude_predicted})")
+        ###############################
         # --- Folium Map Generation ---
 
         # Calculate map center
@@ -160,6 +178,12 @@ def main():
             location=(last_position_corrected[1], last_position_corrected[0]),
             popup='Corrected Final Position',
             icon=folium.Icon(color='purple')
+        ).add_to(map_folium)
+
+        folium.Marker(
+            location=(latitude_predicted, longitude_predicted),
+            popup='Predicted Position',
+            icon=folium.Icon(color='pink')
         ).add_to(map_folium)
 
         # Add animated path for bus positions

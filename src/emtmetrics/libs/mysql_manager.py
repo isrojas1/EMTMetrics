@@ -87,6 +87,32 @@ class MySQLManager:
             print(f"Database error: {e}")
             return None
 
+    def get_coordinates(self, shape_id: int, dist_traveled: int) -> Optional[tuple[float, float]]:
+        """
+        Get (lat, lon) for a specific shape point's dist traveled
+
+        :param shape_id: Shape identifier
+        :param dist_traveled: Point's distance traveled
+        :return: (lat, lon) or None if not found
+        """
+        try:
+            with self._get_connection() as conexion:
+                if conexion.is_connected():
+                    with conexion.cursor() as cursor:
+                        query = """
+                            SELECT shape_pt_lat, shape_pt_lon 
+                            FROM shapes 
+                            WHERE shape_id = %s 
+                            AND shape_dist_traveled = %s
+                            LIMIT 1
+                        """
+                        cursor.execute(query, (shape_id, dist_traveled))
+                        result = cursor.fetchone()
+                        return (result[0], result[1]) if result else None
+        except Error as e:
+            print(f"Database error: {e}")
+            return None
+
     def get_bus_shape(self, line_id: str, direction_id: str) -> Optional[int]:
         try:
             with self._get_connection() as conexion:

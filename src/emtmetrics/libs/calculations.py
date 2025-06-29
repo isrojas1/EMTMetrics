@@ -1,8 +1,11 @@
+from bisect import bisect
 from decimal import Decimal
+from typing import List, Tuple
 
 import numpy as np
 from scipy.spatial import cKDTree
 from math import radians, sin, cos, sqrt, atan2
+import bisect
 
 
 def correct_position(route, bus_position):
@@ -105,3 +108,87 @@ def calculate_distance_along_route(
 
     ratio = d_ap / d_ab_straight
     return ratio * d_ab
+
+
+def find_surrounding_distances(distances: List[float], target: float) -> Tuple[float, float]:
+    """
+    Finds the two consecutive distances in a sorted list that surround a target value.
+
+    Args:
+        distances: Sorted list of distances in ascending order
+        target: Target distance value to locate
+
+    Returns:
+        Tuple (left_dist, right_dist) representing the surrounding interval
+
+    Raises:
+        ValueError: If the list is empty or target is out of range
+    """
+    if not distances:
+        raise ValueError("Distance list cannot be empty")
+
+    n = len(distances)
+
+    # Check if target is out of range
+    if target < distances[0]:
+        raise ValueError(f"Target {target} is below minimum distance {distances[0]}")
+    if target > distances[-1]:
+        raise ValueError(f"Target {target} is above maximum distance {distances[-1]}")
+
+    # Find insertion position using binary search
+    idx = bisect.bisect_left(distances, target)
+
+    # Handle exact matches and edge cases
+    if idx == 0:
+        return distances[0], distances[0]
+    if distances[idx] == target or idx == n:
+        return distances[idx - 1], distances[idx] if idx < n else distances[-1]
+
+    # Return surrounding distances
+    return distances[idx - 1], distances[idx]
+
+
+def interpolate_point(
+        lat_a: float, lon_a: float, dist_a: float,
+        lat_b: float, lon_b: float, dist_b: float,
+        dist_p: float
+) -> tuple[float, float]:
+    """
+    Interpolates the coordinates of a point between two known points using linear interpolation.
+
+    Args:
+        lat_a: Latitude of point A
+        lon_a: Longitude of point A
+        dist_a: Traveled distance at point A
+        lat_b: Latitude of point B
+        lon_b: Longitude of point B
+        dist_b: Traveled distance at point B
+        dist_p: Traveled distance at the target point (must be between dist_a and dist_b)
+
+    Returns:
+        Tuple (lat_p, lon_p) with coordinates of the interpolated point
+
+    Raises:
+        ValueError: If dist_p is not between dist_a and dist_b
+    """
+    # Convert all distance values to float
+    dist_a = float(dist_a)
+    dist_b = float(dist_b)
+    dist_p = float(dist_p)
+
+    # Validate distance
+    if not (dist_a <= dist_p <= dist_b):
+        raise ValueError("dist_p must be between dist_a and dist_b")
+
+    # Handle coincident points
+    if dist_a == dist_b:
+        return lat_a, lon_a
+
+    # Calculate interpolation fraction
+    fraction = (dist_p - dist_a) / (dist_b - dist_a)
+
+    # Perform linear interpolation
+    lat_p = lat_a + fraction * (lat_b - lat_a)
+    lon_p = lon_a + fraction * (lon_b - lon_a)
+
+    return lat_p, lon_p
