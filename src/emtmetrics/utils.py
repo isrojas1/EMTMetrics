@@ -1,14 +1,19 @@
+import logging
 import os
 from decimal import Decimal
 from typing import List
 import folium
 from influxdb_client import InfluxDBClient, Point
 import mysql.connector
+from influxdb_client.client.exceptions import InfluxDBError
 from mysql.connector import Error
 import numpy as np
 from scipy.spatial import cKDTree
 
-# MYSQL and GRAFANA
+logger = logging.getLogger(__name__)
+
+
+# MYSQL and INFLUX
 def shape_points(shape_id: int) -> List[tuple]:
     try:
         conexion = mysql.connector.connect(
@@ -19,51 +24,152 @@ def shape_points(shape_id: int) -> List[tuple]:
         )
 
         if conexion.is_connected():
-            print("Conexión exitosa.")
+            logger.info("Conexión mysql exitosa.")
             cursor = conexion.cursor()
             consulta = f"SELECT shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled FROM shapes WHERE shape_id = {shape_id}"
             cursor.execute(consulta)
             return cursor.fetchall()
 
     except Error as e:
-        print(f"Ocurrió un error: {e}")
+        logger.info(f"Ocurrió un error: {e}")
 
     finally:
         if 'conexion' in locals() and conexion.is_connected():
             cursor.close()
             conexion.close()
-            print("Conexión cerrada.")
+            logger.info("Conexión mysql cerrada.")
 
 
-def bus_positions(bus_id: str):
+def dist_traveled(shape_id: int, shape_pt_lat: float, shape_pt_lon: float) -> int:
+    try:
+        conexion = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='tfgautobuses',
+            database='emtdata'
+        )
+
+        if conexion.is_connected():
+            logger.info("Conexión mysql exitosa.")
+            cursor = conexion.cursor()
+
+            # Parameterized query to prevent SQL injection
+            query = """
+                SELECT shape_dist_traveled 
+                FROM shapes 
+                WHERE shape_id = %s 
+                AND ABS(shape_pt_lat - %s) < 0.000001
+                AND ABS(shape_pt_lon - %s) < 0.000001
+                LIMIT 1
+            """
+            cursor.execute(query, (shape_id, shape_pt_lat, shape_pt_lon))
+
+            result = cursor.fetchone()
+            return result[0] if result else 0
+
+    except mysql.connector.Error as e:
+        logger.error(f"Database error: {e}")
+        return 0
+
+    except Exception as e:
+        logger.exception("Unexpected error occurred")
+        return 0
+
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conexion' in locals() and conexion.is_connected():
+            conexion.close()
+
+
+def bus_positions(bus_id: str) -> list:
+    """
+    Retrieve bus position data from InfluxDB
+
+    Args:
+        bus_id: Bus identifier (e.g., "buses:712")
+
+    Returns:
+        List of position dictionaries with keys:
+        - 'time': datetime object
+        - 'latitude': float
+        - 'longitude': float
+    """
     token = os.environ.get("INFLUXDB_TOKEN")
+    if not token:
+        logger.error("INFLUXDB_TOKEN environment variable not set")
+        return []
+
     org = "opentwins"
     influx_url = "http://192.168.32.131:30716"
-    client = InfluxDBClient(url=influx_url, token=token, org=org)
-    query_api = client.query_api()
 
-    query = (
-        'from(bucket: "default")\n'
-        '  |> range(start: -1h)\n'
-        '  |> filter(fn: (r) => r["_measurement"] == "mqtt_consumer")\n'
-        '  |> filter(fn: (r) => r["_field"] == "value_gps_properties_longitude" or r["_field"] == "value_gps_properties_latitude")\n'
-        f'  |> filter(fn: (r) => r["thingId"] == "{bus_id}")\n'
-        '  |> map(fn: (r) => ({ r with _value: float(v: r._value) }))\n'
-        '  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
-    )
+    try:
+        client = InfluxDBClient(url=influx_url, token=token, org=org)
+        query_api = client.query_api()
 
-    tables = query_api.query(org=org, query=query)
+        # Validate bus_id format
+        if not (isinstance(bus_id, str) and ":" in bus_id):
+            logger.error(f"Invalid bus_id format: {bus_id}")
+            return []
 
-    data = []
-    for table in tables:
-        for row in table.records:
-            data.append({
-                'time': row.values['_time'],
-                'latitude': row.values['value_gps_properties_latitude'],
-                'longitude': row.values['value_gps_properties_longitude']
-            })
-    return data
+        # Build query with parameterized bus_id
+        query = f'''
+            from(bucket: "default")
+                |> range(start: -2h)
+                |> filter(fn: (r) => r["_measurement"] == "mqtt_consumer")
+                |> filter(fn: (r) => r["_field"] == "value_gps_properties_longitude" or 
+                                     r["_field"] == "value_gps_properties_latitude" or 
+                                     r["_field"] == "value_line_properties_direction" or 
+                                     r["_field"] == "value_line_properties_code")
+                |> filter(fn: (r) => r["thingId"] == "{bus_id}")
+                |> map(fn: (r) => ({{ r with _value: float(v: r._value) }}))
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: true)
+                |> duplicate(column: "value_line_properties_code", as: "temp_code")
+                |> duplicate(column: "value_line_properties_direction", as: "temp_direction")
+                |> difference(columns: ["temp_code", "temp_direction"], keepFirst: true)
+                |> fill(column: "temp_code", value: 0.0)
+                |> fill(column: "temp_direction", value: 0.0)
+                |> map(fn: (r) => ({{
+                    r with
+                    changeGroup: if r.temp_code != 0.0 or r.temp_direction != 0.0 then 1 else 0
+                }}))
+                |> cumulativeSum(columns: ["changeGroup"])
+                |> keep(columns: ["_time", "value_gps_properties_latitude", "value_gps_properties_longitude", "changeGroup"])
+                |> filter(fn: (r) => r.changeGroup == 0)
+                |> sort(columns: ["_time"])
+        '''
 
+        logger.info(f"Querying positions for bus: {bus_id}")
+        tables = query_api.query(org=org, query=query)
+        logger.info(f"Received {len(tables)} tables from InfluxDB")
+
+        data = []
+        for table in tables:
+            for row in table.records:
+                try:
+                    data.append({
+                        'time': row.values['_time'],
+                        'latitude': row.values.get('value_gps_properties_latitude'),
+                        'longitude': row.values.get('value_gps_properties_longitude')
+                    })
+                except KeyError as e:
+                    logger.warning(f"Missing position data in record: {e}")
+
+        logger.info(f"Retrieved {len(data)} position records")
+        return data
+
+    except InfluxDBError as e:
+        logger.error(f"InfluxDB query failed: {e}")
+        return []
+    except Exception as e:
+        logger.exception(f"Unexpected error: {e}")
+        return []
+    finally:
+        try:
+            client.close()
+        except UnboundLocalError:
+            pass  # Client not initialized
 
 def get_bus_route(bus_id: str) -> dict:
     token = os.environ.get("INFLUXDB_TOKEN")
@@ -151,13 +257,13 @@ def get_bus_shape(bus_id: str) -> int | None:
                 try:
                     return int(result[0])
                 except ValueError:
-                    print(f"shape_id '{result[0]}' is not convertible to int.")
+                    logger.error(f"shape_id '{result[0]}' is not convertible to int.")
                     return None
             else:
                 return None
 
     except mysql.connector.Error as e:
-        print(f"Database error occurred: {e}")
+        logger.error(f"Database error occurred: {e}")
         return None
 
     finally:
