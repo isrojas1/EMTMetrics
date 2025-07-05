@@ -7,7 +7,7 @@ from .service.prediction_service import PredictionService
 from .utils.influxdb_manager import InfluxDBManager
 from .utils.mysql_manager import MySQLManager
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
