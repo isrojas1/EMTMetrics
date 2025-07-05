@@ -40,12 +40,14 @@ async def predict_future_position(request: PositionPredictionRequest, service=De
 
         return PositionPredictionResponse(
             bus_id=request.bus_id,
+            last_known_distance_traveled=result["last_known_distance_traveled"],
             predicted_location=LocationRequest(
                 latitude=result["latitude"],
                 longitude=result["longitude"]
             ),
-            distance_traveled=result["distance_traveled"],
-            prediction_time_seconds=request.prediction_time_seconds,
+            predicted_distance_traveled=result["distance_traveled"],
+            target_arrival_time=result["target_arrival_time"],
+            target_seconds_to_arrival=request.prediction_time_seconds,
             current_speed=result["current_speed"],
             message="Position prediction calculated successfully"
         )
@@ -76,9 +78,11 @@ async def predict_arrival_time_by_coords(request: TimePredictionByCoordinatesReq
 
         return TimePredictionResponse(
             bus_id=request.bus_id,
-            predicted_location=request.target_location,
-            predicted_arrival_time="placeholder TODO",
-            seconds_to_arrival=result["predicted_time_seconds"],
+            last_known_distance_traveled=result["last_known_distance_traveled"],
+            target_distance_traveled=result["target_distance_traveled"],
+            target_location=request.target_location,
+            predicted_arrival_time=result["predicted_arrival_time"],
+            predicted_seconds_to_arrival=result["predicted_time_seconds"],
             current_speed=result["current_speed"],
             message="Prediction calculated successfully"
         )
@@ -108,12 +112,14 @@ async def predict_arrival_time_by_distance(request: TimePredictionByDistanceTrav
 
         return TimePredictionResponse(
             bus_id=request.bus_id,
-            predicted_location=LocationRequest(
+            last_known_distance_traveled=result["last_known_distance_traveled"],
+            target_location=LocationRequest(
                 latitude=result["latitude"],
                 longitude=result["longitude"]
             ),
-            predicted_arrival_time="placeholder TODO",
-            seconds_to_arrival=result["predicted_time_seconds"],
+            target_distance_traveled=request.target_location,
+            predicted_arrival_time=result["predicted_arrival_time"],
+            predicted_seconds_to_arrival=result["predicted_time_seconds"],
             current_speed=result["current_speed"],
             message="Prediction calculated successfully"
         )

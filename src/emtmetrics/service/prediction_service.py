@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Dict
 
 from ..model.prediction_service_aux_data import TravelMetrics, AbsoluteDistances, PositionPair, CorrectedPositions, SegmentDistances, RouteData
@@ -191,11 +192,12 @@ class PredictionService:
         return TravelMetrics(
             distance_traveled=distance_traveled,
             time_elapsed_seconds=time_elapsed_seconds,
+            last_timestamp=position_pair.last_timestamp,
             average_speed=average_speed
         )
 
     def calculate_average_speed(self, bus_id: str, first_point_index: int,
-                                last_point_index: int) -> Tuple[float, float, List[int], int]:
+                                last_point_index: int) -> tuple[float, datetime, float, list[int], int]:
         """
         Calculate average speed between two bus positions.
 
@@ -213,6 +215,7 @@ class PredictionService:
 
             return (
                 travel_metrics.average_speed,
+                travel_metrics.last_timestamp,
                 absolute_distances.last_point_distance,
                 route_data.distance_traveled_list,
                 route_data.bus_shape
@@ -226,7 +229,7 @@ class PredictionService:
                                      initial_index: int = 0, last_index: int = -1) -> Dict[str, Any]:
         try:
             # calculate time
-            speed, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
+            speed, last_timestamp, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
                 bus_id,
                 initial_index, last_index)
 
@@ -243,11 +246,15 @@ class PredictionService:
                                                                         float(
                                                                             absolute_distance_traveled_to_next_position))
 
+            target_arrival_time = last_timestamp + timedelta(seconds=prediction_seconds)
+
             return {
                 "latitude": latitude_predicted,
                 "longitude": longitude_predicted,
+                "last_known_distance_traveled": absolute_last_point_distance,
                 "distance_traveled": absolute_distance_traveled_to_next_position,
-                "current_speed": speed
+                "target_arrival_time": target_arrival_time,
+                "current_speed": speed,
             }
 
         except Exception as e:
@@ -258,7 +265,7 @@ class PredictionService:
                                               initial_index: int = 0, last_index: int = -1) -> Dict[str, Any]:
         try:
             # calculate time
-            speed, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
+            speed, last_timestamp, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
                 bus_id,
                 initial_index, last_index)
             route_data = self._get_route_data(bus_id)
@@ -283,13 +290,18 @@ class PredictionService:
             absolute_point_to_predict_distance = distance_traveled_segment_to_predict_point_a + distance_to_predict_relative
             logger.info(f"Distance to predict: {absolute_point_to_predict_distance:.2f}m")
 
-            distancia_por_recorrer = absolute_point_to_predict_distance - absolute_last_point_distance
-            tiempo_predicho = distancia_por_recorrer / speed
-            logger.info(f"Predicted time: {tiempo_predicho} secs or {tiempo_predicho / 60} mins")
+            distance_to_travel = absolute_point_to_predict_distance - absolute_last_point_distance
+            predicted_time = distance_to_travel / speed
+            logger.info(f"Predicted time: {predicted_time} secs or {predicted_time / 60} mins")
+
+            predicted_arrival_time = last_timestamp + timedelta(seconds=predicted_time)
 
             return {
                 "current_speed": speed,
-                "predicted_time_seconds": tiempo_predicho
+                "predicted_arrival_time": predicted_arrival_time,
+                "predicted_time_seconds": predicted_time,
+                "last_known_distance_traveled": absolute_last_point_distance,
+                "target_distance_traveled": absolute_point_to_predict_distance
             }
 
         except Exception as e:
@@ -300,7 +312,7 @@ class PredictionService:
                                                      initial_index: int = 0, last_index: int = -1) -> Dict[str, Any]:
         try:
             # calculate time
-            speed, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
+            speed, last_timestamp, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
                 bus_id,
                 initial_index, last_index)
 
@@ -319,10 +331,14 @@ class PredictionService:
                                                                         float(
                                                                             distance_traveled))
 
+            predicted_arrival_time = last_timestamp + timedelta(seconds=predicted_time)
+
             return {
                 "latitude": latitude_predicted,
                 "longitude": longitude_predicted,
                 "current_speed": speed,
+                "predicted_arrival_time": predicted_arrival_time,
+                "last_known_distance_traveled": absolute_last_point_distance,
                 "predicted_time_seconds": predicted_time
             }
 

@@ -51,4 +51,5 @@ class TravelMetrics:
     """Final travel calculation results"""
     distance_traveled: float
     time_elapsed_seconds: float
+    last_timestamp: datetime
     average_speed: float

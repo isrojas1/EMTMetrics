@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -7,9 +8,10 @@ from src.emtmetrics.model.location_request import LocationRequest
 
 class PositionPredictionResponse(BaseModel):
     bus_id: str
+    last_known_distance_traveled: Optional[float]
     predicted_location: LocationRequest
-    distance_traveled: float
-    # total_route_distance: int
-    prediction_time_seconds: int
+    predicted_distance_traveled: float
+    target_arrival_time: Optional[datetime]
+    target_seconds_to_arrival: int
     current_speed: Optional[float]
     message: str
