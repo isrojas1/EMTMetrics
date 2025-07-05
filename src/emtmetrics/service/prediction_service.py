@@ -2,7 +2,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
-from ..model.prediction_service_aux_data import TravelMetrics, AbsoluteDistances, PositionPair, CorrectedPositions, SegmentDistances, RouteData
+from fastapi import HTTPException
+
+from ..model.prediction_service_aux_data import TravelMetrics, AbsoluteDistances, PositionPair, CorrectedPositions, \
+    SegmentDistances, RouteData
 from ..model.location_request import LocationRequest
 from ..utils.influxdb_manager import InfluxDBManager
 from ..utils.mysql_manager import MySQLManager
@@ -44,7 +47,7 @@ class PredictionService:
 
         logger.info(f"Retrieved {len(shape_points)} route points from database")
 
-        route_coordinates = [(row[0], row[1]) for row in shape_points] # lat, lon
+        route_coordinates = [(row[0], row[1]) for row in shape_points]  # lat, lon
         distance_traveled_list = [row[3] for row in shape_points]
 
         return RouteData(
@@ -270,10 +273,10 @@ class PredictionService:
                 initial_index, last_index)
             route_data = self._get_route_data(bus_id)
 
-
             # Predict time to achieve next position
             point_to_predict = (location.latitude, location.longitude)
-            point_to_predict_corrected, _, segment_to_predict = correct_position(route_data.route_coordinates, point_to_predict)
+            point_to_predict_corrected, _, segment_to_predict = correct_position(route_data.route_coordinates,
+                                                                                 point_to_predict)
 
             distance_traveled_segment_to_predict_point_a = self.mysql_manager.dist_traveled(bus_shape,
                                                                                             segment_to_predict[0][0],
@@ -289,6 +292,13 @@ class PredictionService:
 
             absolute_point_to_predict_distance = distance_traveled_segment_to_predict_point_a + distance_to_predict_relative
             logger.info(f"Distance to predict: {absolute_point_to_predict_distance:.2f}m")
+
+            if absolute_point_to_predict_distance > absolute_last_point_distance:
+                if absolute_point_to_predict_distance < absolute_last_point_distance:
+                    raise HTTPException(status_code=400, detail=f"Point to predict distance in route "
+                                                                f"({absolute_point_to_predict_distance}m) is behind last "
+                                                                f"known point distance in route "
+                                                                f"({absolute_last_point_distance}m)")
 
             distance_to_travel = absolute_point_to_predict_distance - absolute_last_point_distance
             predicted_time = distance_to_travel / speed
@@ -315,6 +325,12 @@ class PredictionService:
             speed, last_timestamp, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
                 bus_id,
                 initial_index, last_index)
+
+            if distance_traveled < absolute_last_point_distance:
+                raise HTTPException(status_code=400, detail=f"Point to predict distance in route "
+                                                            f"({distance_traveled}m) is behind last "
+                                                            f"known point distance in route "
+                                                            f"({absolute_last_point_distance}m)")
 
             distance_traveled_relative = distance_traveled - absolute_last_point_distance
             predicted_time = distance_traveled_relative / speed
@@ -347,7 +363,7 @@ class PredictionService:
             raise
 
     def calculate_predicted_arrival_time_by_stop(self, bus_id: str, stop_order: int,
-                                                     initial_index: int = 0, last_index: int = -1) -> Dict[str, Any]:
+                                                 initial_index: int = 0, last_index: int = -1) -> Dict[str, Any]:
         try:
             route_info = self.influxdb_manager.get_bus_route(bus_id)
             bus_shape = self.get_bus_shape(bus_id)
