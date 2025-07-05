@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime
 from typing import Any, Dict
 
+from ..model.prediction_service_aux_data import TravelMetrics, AbsoluteDistances, PositionPair, CorrectedPositions, SegmentDistances, RouteData
 from ..model.location_request import LocationRequest
 from ..utils.influxdb_manager import InfluxDBManager
 from ..utils.mysql_manager import MySQLManager
@@ -16,11 +16,11 @@ class PredictionService:
         self.mysql_manager = mysql_manager
 
     def get_bus_shape(self, bus_id: str) -> Any:
+        """Get bus shape information for the given bus ID"""
         route_info = self.influxdb_manager.get_bus_route(bus_id)
         if not route_info.get('linea') or not route_info.get('sentido'):
             return None
 
-        # Extract numeric values from prefixed strings
         try:
             line_id = route_info['linea'].split(':')[-1]
             direction_id = route_info['sentido'].split(':')[-1]
@@ -29,88 +29,194 @@ class PredictionService:
 
         return self.mysql_manager.get_bus_shape(line_id, direction_id)
 
-    def calculate_average_speed(self, bus_id: str, first_point_index: int, last_point_index: int) -> Tuple[
-        float, float, List[int], int]:
+    def _get_route_data(self, bus_id: str) -> RouteData:
+        """Extract and prepare route data for calculations"""
+        bus_shape = self.get_bus_shape(bus_id)
+        if not bus_shape:
+            raise ValueError("No bus shape found")
+
+        logger.info(f"Retrieved bus shape: {bus_shape}")
+
+        shape_points = self.mysql_manager.shape_points(bus_shape)
+        if not shape_points:
+            raise ValueError("No route points found in database")
+
+        logger.info(f"Retrieved {len(shape_points)} route points from database")
+
+        route_coordinates = [(row[0], row[1]) for row in shape_points] # lat, lon
+        distance_traveled_list = [row[3] for row in shape_points]
+
+        return RouteData(
+            bus_shape=bus_shape,
+            route_coordinates=route_coordinates,
+            distance_traveled_list=distance_traveled_list
+        )
+
+    def _get_bus_positions(self, bus_id: str) -> List[Dict]:
+        """Get bus positions from InfluxDB with validation"""
+        bus_positions = self.influxdb_manager.bus_positions(bus_id)
+        logger.info(f"Retrieved {len(bus_positions)} position points from InfluxDB")
+
+        if len(bus_positions) < 2:
+            raise ValueError("Insufficient position points (min 2 required)")
+
+        return bus_positions
+
+    def _extract_position_pair(self, bus_positions: List[Dict],
+                               first_index: int, last_index: int) -> PositionPair:
+        """Extract position pair data from bus positions"""
+        first_pos_data = bus_positions[first_index]
+        last_pos_data = bus_positions[last_index]
+
+        first_position = (first_pos_data['latitude'], first_pos_data['longitude'])
+        last_position = (last_pos_data['latitude'], last_pos_data['longitude'])
+
+        logger.debug(f"First position: {first_position}")
+        logger.debug(f"Last position: {last_position}")
+
+        return PositionPair(
+            first_position=first_position,
+            last_position=last_position,
+            first_index=first_index,
+            last_index=last_index,
+            first_timestamp=first_pos_data['time'],
+            last_timestamp=last_pos_data['time']
+        )
+
+    def _correct_positions(self, route_data: RouteData,
+                           position_pair: PositionPair) -> CorrectedPositions:
+        """Correct positions using route shape points"""
+        logger.info("Correcting first position...")
+        first_corrected, _, first_segment = correct_position(
+            route_data.route_coordinates, position_pair.first_position
+        )
+
+        logger.info("Correcting last position...")
+        last_corrected, _, last_segment = correct_position(
+            route_data.route_coordinates, position_pair.last_position
+        )
+
+        logger.debug(f"First position corrected: {first_corrected}")
+        logger.debug(f"Last position corrected: {last_corrected}")
+
+        return CorrectedPositions(
+            first_corrected=first_corrected,
+            last_corrected=last_corrected,
+            first_segment=first_segment,
+            last_segment=last_segment
+        )
+
+    def _calculate_segment_distances(self, route_data: RouteData,
+                                     corrected_positions: CorrectedPositions) -> SegmentDistances:
+        """Calculate distances for position segments"""
+        logger.info("Calculating segment distances...")
+
+        first_segment_point_a = self.mysql_manager.dist_traveled(
+            route_data.bus_shape,
+            corrected_positions.first_segment[0][0],
+            corrected_positions.first_segment[0][1]
+        )
+        first_segment_point_b = self.mysql_manager.dist_traveled(
+            route_data.bus_shape,
+            corrected_positions.first_segment[1][0],
+            corrected_positions.first_segment[1][1]
+        )
+
+        last_segment_point_a = self.mysql_manager.dist_traveled(
+            route_data.bus_shape,
+            corrected_positions.last_segment[0][0],
+            corrected_positions.last_segment[0][1]
+        )
+        last_segment_point_b = self.mysql_manager.dist_traveled(
+            route_data.bus_shape,
+            corrected_positions.last_segment[1][0],
+            corrected_positions.last_segment[1][1]
+        )
+
+        logger.debug(f"First segment distances: a={first_segment_point_a}m, b={first_segment_point_b}m")
+        logger.debug(f"Last segment distances: a={last_segment_point_a}m, b={last_segment_point_b}m")
+
+        return SegmentDistances(
+            first_segment_point_a=first_segment_point_a,
+            first_segment_point_b=first_segment_point_b,
+            last_segment_point_a=last_segment_point_a,
+            last_segment_point_b=last_segment_point_b
+        )
+
+    def _calculate_absolute_distances(self, corrected_positions: CorrectedPositions,
+                                      segment_distances: SegmentDistances) -> AbsoluteDistances:
+        """Calculate absolute distances along the route"""
+        logger.info("Calculating route distances...")
+
+        relative_first_distance = calculate_distance_along_route(
+            corrected_positions.first_segment[0],
+            corrected_positions.first_segment[1],
+            corrected_positions.first_corrected,
+            segment_distances.first_segment_point_b - segment_distances.first_segment_point_a
+        )
+
+        relative_last_distance = calculate_distance_along_route(
+            corrected_positions.last_segment[0],
+            corrected_positions.last_segment[1],
+            corrected_positions.last_corrected,
+            segment_distances.last_segment_point_b - segment_distances.last_segment_point_a
+        )
+
+        absolute_first_distance = relative_first_distance + segment_distances.first_segment_point_a
+        absolute_last_distance = relative_last_distance + segment_distances.last_segment_point_a
+
+        logger.info(f"Distances - First: {absolute_first_distance:.2f}m, Last: {absolute_last_distance:.2f}m")
+
+        return AbsoluteDistances(
+            first_point_distance=absolute_first_distance,
+            last_point_distance=absolute_last_distance
+        )
+
+    def _calculate_travel_metrics(self, absolute_distances: AbsoluteDistances,
+                                  position_pair: PositionPair) -> TravelMetrics:
+        """Calculate travel distance, time, and average speed"""
+        distance_traveled = abs(absolute_distances.last_point_distance - absolute_distances.first_point_distance)
+        time_elapsed = position_pair.last_timestamp - position_pair.first_timestamp
+        time_elapsed_seconds = time_elapsed.total_seconds()
+
+        logger.info(f"Time elapsed: {time_elapsed_seconds} seconds ({time_elapsed_seconds / 3600:.4f} hours)")
+
+        if time_elapsed_seconds <= 0:
+            raise ValueError("Invalid time elapsed: must be positive")
+
+        average_speed = distance_traveled / time_elapsed_seconds
+
+        logger.info(f"Average speed: {average_speed:.2f} m/s ({average_speed * 3.6:.2f} km/h)")
+
+        return TravelMetrics(
+            distance_traveled=distance_traveled,
+            time_elapsed_seconds=time_elapsed_seconds,
+            average_speed=average_speed
+        )
+
+    def calculate_average_speed(self, bus_id: str, first_point_index: int,
+                                last_point_index: int) -> Tuple[float, float, List[int], int]:
+        """
+        Calculate average speed between two bus positions.
+
+        This method orchestrates the speed calculation process by delegating
+        specific responsibilities to focused helper methods.
+        """
         try:
-            bus_shape = self.get_bus_shape(bus_id)
-            logger.info(f"Retrieved bus shape: {bus_shape}")
-            if not bus_shape:
-                logger.error("No bus shape found. Exiting.")
+            route_data = self._get_route_data(bus_id)
+            bus_positions = self._get_bus_positions(bus_id)
+            position_pair = self._extract_position_pair(bus_positions, first_point_index, last_point_index)
+            corrected_positions = self._correct_positions(route_data, position_pair)
+            segment_distances = self._calculate_segment_distances(route_data, corrected_positions)
+            absolute_distances = self._calculate_absolute_distances(corrected_positions, segment_distances)
+            travel_metrics = self._calculate_travel_metrics(absolute_distances, position_pair)
 
-            # Get shape points from MySQL
-            shape_points = self.mysql_manager.shape_points(bus_shape)
-            logger.info(f"Retrieved {len(shape_points)} route points from database")
-            if not shape_points:
-                logger.error("No route points found in database. Exiting.")
-            route = [(row[1], row[0]) for row in shape_points]  # (lon, lat)
-            distance_traveled_list = [row[3] for row in shape_points]
-
-            # Get bus positions from InfluxDB
-            bus_positions = self.influxdb_manager.bus_positions(bus_id)
-            logger.info(f"Retrieved {len(bus_positions)} position points from InfluxDB")
-            if len(bus_positions) < 3:
-                logger.error("Insufficient position points (min 3 required). Exiting.")
-
-            # TODO: Check for indexes
-
-            # Extract positions
-            first_position = (bus_positions[first_point_index]['longitude'],
-                              bus_positions[first_point_index]['latitude'])
-            last_position = (bus_positions[last_point_index]['longitude'], bus_positions[last_point_index]['latitude'])
-            logger.debug(f"First position: {first_position}")
-            logger.debug(f"Last position: {last_position}")
-
-            # Position correction
-            logger.info("Correcting first position...")
-            first_position_corrected, _, first_segment = correct_position(shape_points, first_position)
-            logger.info("Correcting last position...")
-            last_position_corrected, _, last_segment = correct_position(shape_points, last_position)
-
-            # Get segment distances
-            logger.info("Calculating segment distances...")
-            distance_traveled_first_point_segment_point_a = self.mysql_manager.dist_traveled(bus_shape,
-                                                                                             first_segment[0][1],
-                                                                                             first_segment[0][0])
-            distance_traveled_first_point_segment_point_b = self.mysql_manager.dist_traveled(bus_shape,
-                                                                                             first_segment[1][1],
-                                                                                             first_segment[1][0])
-            distance_traveled_last_point_segment_point_a = self.mysql_manager.dist_traveled(bus_shape,
-                                                                                            last_segment[0][1],
-                                                                                            last_segment[0][0])
-            distance_traveled_last_point_segment_point_b = self.mysql_manager.dist_traveled(bus_shape,
-                                                                                            last_segment[1][1],
-                                                                                            last_segment[1][0])
-            logger.debug(f"First segment's a point distance traveled: {distance_traveled_first_point_segment_point_a}m")
-            logger.debug(f"First segment's b point distance traveled: {distance_traveled_first_point_segment_point_b}m")
-            logger.debug(f"Last segment's a point distance traveled: {distance_traveled_last_point_segment_point_a}m")
-            logger.debug(f"Last segment's b point distance traveled: {distance_traveled_last_point_segment_point_b}m")
-
-            # Calculate traveled distances
-            logger.info("Calculating route distances...")
-            relative_initial_point_distance = calculate_distance_along_route(
-                first_segment[0], first_segment[1], first_position_corrected,
-                distance_traveled_first_point_segment_point_b - distance_traveled_first_point_segment_point_a
+            return (
+                travel_metrics.average_speed,
+                absolute_distances.last_point_distance,
+                route_data.distance_traveled_list,
+                route_data.bus_shape
             )
-            absolute_first_point_distance = relative_initial_point_distance + distance_traveled_first_point_segment_point_a
-            relative_final_point_distance = calculate_distance_along_route(
-                last_segment[0], last_segment[1], last_position_corrected,
-                distance_traveled_last_point_segment_point_b - distance_traveled_last_point_segment_point_a
-            )
-            absolute_last_point_distance = relative_final_point_distance + distance_traveled_last_point_segment_point_a
-
-            logger.info(
-                f"First point distance traveled: {absolute_first_point_distance:.2f}m | Last point distance traveled: {absolute_last_point_distance:.2f}m")
-
-            # Calculate avg speed
-            distance_traveled_in_section = abs(absolute_last_point_distance - absolute_first_point_distance)
-            time_passed_in_section = bus_positions[last_point_index]['time'] - bus_positions[first_point_index]['time']
-            time_passed_in_section_secs = time_passed_in_section.total_seconds()
-            logger.info(
-                f"Time elapsed: {time_passed_in_section_secs} seconds or {time_passed_in_section_secs / 3600} h")
-            speed = distance_traveled_in_section / time_passed_in_section_secs  # m/s
-            logger.info(f"Average speed: {speed} m/s or {speed * 3.6} km/h")
-
-            return speed, absolute_last_point_distance, distance_traveled_list, bus_shape
 
         except Exception as e:
             logger.error(f"Error calculating average speed: {e}")
@@ -155,18 +261,19 @@ class PredictionService:
             speed, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
                 bus_id,
                 initial_index, last_index)
-            route = self.mysql_manager.shape_points(bus_shape)
+            route_data = self._get_route_data(bus_id)
 
-            # Predict time to achieve bus_positions[-1]
-            point_to_predict = (location.longitude, location.latitude)
-            point_to_predict_corrected, _, segment_to_predict = correct_position(route, point_to_predict)
+
+            # Predict time to achieve next position
+            point_to_predict = (location.latitude, location.longitude)
+            point_to_predict_corrected, _, segment_to_predict = correct_position(route_data.route_coordinates, point_to_predict)
 
             distance_traveled_segment_to_predict_point_a = self.mysql_manager.dist_traveled(bus_shape,
-                                                                                            segment_to_predict[0][1],
-                                                                                            segment_to_predict[0][0])
+                                                                                            segment_to_predict[0][0],
+                                                                                            segment_to_predict[0][1])
             distance_traveled_segment_to_predict_point_b = self.mysql_manager.dist_traveled(bus_shape,
-                                                                                            segment_to_predict[1][1],
-                                                                                            segment_to_predict[1][0])
+                                                                                            segment_to_predict[1][0],
+                                                                                            segment_to_predict[1][1])
             distance_segment_to_predict = distance_traveled_segment_to_predict_point_b - distance_traveled_segment_to_predict_point_a
 
             distance_to_predict_relative = calculate_distance_along_route(
