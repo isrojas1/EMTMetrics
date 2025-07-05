@@ -120,10 +120,10 @@ async def predict_arrival_time_by_distance(request: TimePredictionByDistanceTrav
 
     except Exception as e:
         logger.error(f"Error in time prediction: {e}")
-        raise (HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
-@router.post("/api/predictions/time/bydistance", response_model=TimePredictionResponse))
+@router.post("/api/predictions/time/bystop", response_model=TimePredictionResponse)
 async def predict_arrival_time_by_stop(request: TimePredictionByStopRequest, service=Depends(get_service)):
     """
     Predict when a bus will arrive at a target location
