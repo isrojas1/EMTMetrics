@@ -52,6 +52,9 @@ async def predict_future_position(request: PositionPredictionRequest, service=De
             message="Position prediction calculated successfully"
         )
 
+    except HTTPException as http_exc:
+        raise http_exc
+
     except Exception as e:
         logger.error(f"Error in position prediction: {e}")
         raise HTTPException(status_code=500, detail=f"Position prediction failed: {str(e)}")
@@ -86,6 +89,8 @@ async def predict_arrival_time_by_coords(request: TimePredictionByCoordinatesReq
             current_speed=result["current_speed"],
             message="Prediction calculated successfully"
         )
+    except HTTPException as http_exc:
+        raise http_exc
 
     except Exception as e:
         logger.error(f"Error in time prediction: {e}")
@@ -123,6 +128,8 @@ async def predict_arrival_time_by_distance(request: TimePredictionByDistanceTrav
             current_speed=result["current_speed"],
             message="Prediction calculated successfully"
         )
+    except HTTPException as http_exc:
+        raise http_exc
 
     except Exception as e:
         logger.error(f"Error in time prediction: {e}")
@@ -158,6 +165,9 @@ async def predict_arrival_time_by_stop(request: TimePredictionByStopRequest, ser
             current_speed=result["current_speed"],
             message="Prediction calculated successfully"
         )
+
+    except HTTPException as http_exc:
+        raise http_exc
 
     except Exception as e:
         logger.error(f"Error in time prediction: {e}")
