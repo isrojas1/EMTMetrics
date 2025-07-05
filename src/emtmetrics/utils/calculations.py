@@ -7,8 +7,28 @@ from scipy.spatial import cKDTree
 from math import radians, sin, cos, sqrt, atan2
 import bisect
 
+from src.emtmetrics.error.point_not_close_error import PointNotCloseError
 
-def correct_position(route, bus_position):
+
+def correct_position(
+    route: list,
+    bus_position: tuple[float, float],
+    max_distance: float = 0.001
+) -> Tuple[tuple, float, tuple]:
+    """
+    Corrects the bus position to the closest point on the route.
+    Raises PointNotCloseError if the closest point is farther than max_distance.
+
+    Args:
+        route: List of (lat, lon) points
+        bus_position: Dict with 'latitude' and 'longitude' or tuple (lat, lon)
+        max_distance: Maximum allowed distance to consider the point close
+
+    Returns:
+        best_point: Closest point on the route (lon, lat)
+        best_distance: Distance to the closest point
+        best_segment: Segment (p1, p2) where the closest point lies
+    """
     route_float = []
     for point in route:
         lat = point[0]
@@ -24,7 +44,9 @@ def correct_position(route, bus_position):
         lat = float(bus_position['latitude'])
         pos_float = (lon, lat)
     else:
-        pos_float = (float(bus_position[0]), float(bus_position[1]))
+        lon = float(bus_position[0])
+        lat = float(bus_position[1])
+        pos_float = (lon, lat)
 
     tree = cKDTree(route_float)
     distances, indices = tree.query(pos_float, k=2)
@@ -69,6 +91,11 @@ def correct_position(route, bus_position):
             best_distance = dist
             best_point = tuple(point_proy)
             best_segment = (p1, p2)
+
+    if best_distance > max_distance:
+        raise PointNotCloseError(
+            f"Point is too far from route: distance {best_distance} > max allowed {max_distance}"
+        )
 
     return best_point, best_distance, best_segment
 

@@ -14,7 +14,10 @@ dependencies = [
     "mysql-connector-python (>=9.3.0,<10.0.0)",
     "spicy (>=0.16.0,<0.17.0)",
     "scikit-learn (>=1.7.0,<2.0.0)",
-    "folium (>=0.20.0,<0.21.0)"
+    "folium (>=0.20.0,<0.21.0)",
+    "fastapi (>=0.115.14,<0.116.0)",
+    "pydantic (>=2.11.7,<3.0.0)",
+    "uvicorn[standard] (>=0.35.0,<0.36.0)"
 ]
 
 [tool.poetry]

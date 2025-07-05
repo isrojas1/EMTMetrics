@@ -34,6 +34,88 @@ class InfluxDBManager:
             query_api = client.query_api()
             return query_api.query(query=query, org=self.org)
 
+    def get_stops_for_line_and_direction(self, line: str, sentido: str) -> List[Dict[str, Any]]:
+        """
+        Returns the list of stops (with order and coordinates) for a given line and sentido.
+
+        Args:
+            line: The line code as a string (e.g., "3.0")
+            sentido: The direction as a string (e.g., "2")
+
+        Returns:
+            List of dictionaries with keys: codParada, orden, latitud, longitud
+        """
+        flux_query = f'''
+        import "strings"
+    
+        linea =
+          from(bucket: "{self.bucket}")
+              |> range(start: -1d)
+              |> filter(fn: (r) => r["_measurement"] == "mqtt_consumer")
+              |> filter(fn: (r) => r["_field"] =~ /^value_stops_properties_\\d+_(orden|sentido)$/)
+              |> filter(fn: (r) => r["thingId"] == "lines:{line}")
+              |> last()
+              |> map(fn: (r) => ({{
+            codLinea: r["thingId"],
+                  codParada: strings.split(v: r._field, t: "_")[3],
+                  tipo: strings.split(v: r._field, t: "_")[4],
+                  valor: r._value,
+                  _time: r._time
+                }}))
+              |> pivot(rowKey: ["_time", "codLinea", "codParada"], columnKey: ["tipo"], valueColumn: "valor")
+              |> filter(fn: (r) => exists r.sentido and string(v: r.sentido) == "{sentido}")
+              |> map(fn: (r) => ({{
+            codParada: r.codParada,
+                  orden: int(v: r.orden)
+                }}))
+              |> sort(columns: ["orden"], desc: false)
+    
+        paradas =
+          from(bucket: "{self.bucket}")
+            |> range(start: -1d)
+            |> filter(fn: (r) => r["_measurement"] == "mqtt_consumer")
+            |> filter(fn: (r) => r["_field"] =~ /^value_stop_properties_latitud$/ or r["_field"] =~ /^value_stop_properties_longitud$/)
+            |> last()
+            |> map(fn: (r) => ({{
+            codParada: strings.trimPrefix(v: r["thingId"], prefix: "stops:"),
+                tipo: if r["_field"] =~ /^value_stop_properties_latitud$/ then "latitud" else "longitud",
+                valor: r._value,
+                _time: r._time
+              }}))
+            |> pivot(rowKey: ["_time", "codParada"], columnKey: ["tipo"], valueColumn: "valor")
+    
+        join(
+          tables: {{linea: linea, paradas: paradas}},
+          on: ["codParada"]
+        )
+          |> map(fn: (r) => ({{
+            codParada: r.codParada,
+              orden: r.orden,
+              latitud: float(v: r.latitud),
+              longitud: float(v: r.longitud)
+            }}))
+          |> sort(columns: ["orden"], desc: false)
+          |> yield(name: "ParadasConCoordenadas")
+            '''
+        try:
+            tables = self._execute_query(flux_query)
+            stops = []
+            for table in tables:
+                for record in table.records:
+                    stops.append({
+                        "codParada": record.values.get("codParada"),
+                        "orden": record.values.get("orden"),
+                        "latitud": record.values.get("latitud"),
+                        "longitud": record.values.get("longitud"),
+                    })
+            return stops
+        except InfluxDBError as e:
+            logging.error(f"Failed to fetch stops for line {line}, sentido {sentido}: {e}")
+            return []
+        except Exception as e:
+            logging.exception("Unexpected error in get_stops_for_line_and_direction")
+            return []
+
     def bus_positions(self, bus_id: str) -> List[Dict[str, Any]]:
         """
         Retrieve bus position data from InfluxDB

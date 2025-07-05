@@ -3,12 +3,11 @@ from typing import Any
 
 import logging
 import folium
+from folium.plugins import AntPath
 from libs.influxdb_manager import InfluxDBManager
 from libs.mysql_manager import MySQLManager
 import libs.calculations as calcs
-from folium.plugins import AntPath
-
-from src.emtmetrics.libs.calculations import interpolate_point
+from libs.calculations import interpolate_point
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ def main():
     influxdb_manager = InfluxDBManager("http://192.168.32.131:30716", "opentwins")
     mysql_manager = MySQLManager("127.0.0.1", "root", "tfgautobuses", "emtdata")
 
-    BUS_ID = "buses:617"
+    BUS_ID = "buses:714"
     logger.info(f"Starting processing for bus: {BUS_ID}")
 
     try:
@@ -57,7 +56,7 @@ def main():
             logger.error("No route points found in database. Exiting.")
             sys.exit(1)
         route = [(row[1], row[0]) for row in shape_points]  # (lon, lat)
-        disance_traveled_list = [row[3] for row in shape_points]
+        distance_traveled_list = [row[3] for row in shape_points]
 
         # Get bus positions from InfluxDB
         bus_positions = influxdb_manager.bus_positions(BUS_ID)
@@ -121,7 +120,7 @@ def main():
         distance_segment_to_predict = distance_traveled_segment_to_predict_point_b - distance_traveled_segment_to_predict_point_a
 
         distance_to_predict_relative = calcs.calculate_distance_along_route(
-            segment_to_predict[0], last_segment[1], point_to_predict_corrected, distance_segment_to_predict
+            segment_to_predict[0], segment_to_predict[1], point_to_predict_corrected, distance_segment_to_predict
         )
 
         absolute_point_to_predict_distance = distance_traveled_segment_to_predict_point_a + distance_to_predict_relative
@@ -136,7 +135,7 @@ def main():
         time_passed_to_next_position_secs = time_passed_to_next_position.total_seconds()
         distance_traveled_to_next_position = speed * time_passed_to_next_position_secs
         absolute_distance_traveled_to_next_position = absolute_last_point_distance + distance_traveled_to_next_position
-        left_distance, right_distance = calcs.find_surrounding_distances(disance_traveled_list, absolute_distance_traveled_to_next_position)
+        left_distance, right_distance = calcs.find_surrounding_distances(distance_traveled_list, absolute_distance_traveled_to_next_position)
         left_point = mysql_manager.get_coordinates(bus_shape, left_distance)
         right_point = mysql_manager.get_coordinates(bus_shape, right_distance)
         latitude_predicted, longitude_predicted = interpolate_point(float(left_point[0]), float(left_point[1]), float(left_distance),
