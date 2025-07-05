@@ -14,7 +14,7 @@ def correct_position(
     route: list,
     bus_position: tuple[float, float],
     max_distance: float = 0.001
-) -> Tuple[tuple, float, tuple]:
+) -> Tuple[tuple[float, float], float, tuple[tuple[float, float]]]:
     """
     Corrects the bus position to the closest point on the route.
     Raises PointNotCloseError if the closest point is farther than max_distance.
@@ -37,16 +37,16 @@ def correct_position(
             lat = float(lat)
         if isinstance(lon, Decimal):
             lon = float(lon)
-        route_float.append((lon, lat))
+        route_float.append((lat, lon))
 
     if isinstance(bus_position, dict):
         lon = float(bus_position['longitude'])
         lat = float(bus_position['latitude'])
-        pos_float = (lon, lat)
+        pos_float = (lat, lon)
     else:
-        lon = float(bus_position[0])
-        lat = float(bus_position[1])
-        pos_float = (lon, lat)
+        lat = float(bus_position[0])
+        lon = float(bus_position[1])
+        pos_float = (lat, lon)
 
     tree = cKDTree(route_float)
     distances, indices = tree.query(pos_float, k=2)
