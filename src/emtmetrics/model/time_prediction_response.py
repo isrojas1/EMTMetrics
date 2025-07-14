@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from src.emtmetrics.model.location_request import LocationRequest
+from ..model.location_request import LocationRequest
 
 
 class TimePredictionResponse(BaseModel):

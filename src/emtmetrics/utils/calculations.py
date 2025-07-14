@@ -7,7 +7,7 @@ from scipy.spatial import cKDTree
 from math import radians, sin, cos, sqrt, atan2
 import bisect
 
-from src.emtmetrics.error.point_not_close_error import PointNotCloseError
+from ..error.point_not_close_error import PointNotCloseError
 
 
 def correct_position(
@@ -97,7 +97,8 @@ def correct_position(
             f"Point is too far from route: distance {best_distance} > max allowed {max_distance}"
         )
 
-    return best_point, best_distance, best_segment
+    best_point = (float(best_point[0]), float(best_point[1]))
+    return best_point, float(best_distance), best_segment
 
 
 def haversine(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
