@@ -15,12 +15,9 @@ class InfluxDBManager:
         """
         self.url = url
         self.org = org
-        self.bucket = bucket
         self.token = token
+        self.bucket = bucket
 
-        if not self.token:
-            logging.error("INFLUXDB_TOKEN environment variable not set")
-            raise ValueError("Missing INFLUXDB_TOKEN environment variable")
 
     def _execute_query(self, query: str) -> Any:
         """
