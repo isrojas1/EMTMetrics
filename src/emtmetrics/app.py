@@ -21,6 +21,12 @@ mysql_manager = MySQLManager(os.environ.get("MYSQL_HOSTNAME"), os.environ.get("M
 # Initialize services
 prediction_service = PredictionService(influxdb_manager, mysql_manager)
 
+# For debug only
+if os.environ.get("DEBUGPY", "0") == "1":
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))
+    logger.info("Debugger can attach at port 5678")
+
 # Initialize FastAPI app
 app = FastAPI(title="Bus Prediction API", description="Simple API for bus predictions", version="1.0.0")
 app.include_router(prediction_router)
