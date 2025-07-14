@@ -13,5 +13,5 @@ class PositionPredictionResponse(BaseModel):
     predicted_distance_traveled: float
     target_arrival_time: Optional[datetime]
     target_seconds_to_arrival: int
-    current_speed: Optional[float]
+    average_speed: Optional[float]
     message: str

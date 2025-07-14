@@ -258,7 +258,7 @@ class PredictionService:
                 "last_known_distance_traveled": absolute_last_point_distance,
                 "distance_traveled": absolute_distance_traveled_to_next_position,
                 "target_arrival_time": target_arrival_time,
-                "current_speed": speed,
+                "average_speed": speed,
             }
 
         except Exception as e:
@@ -308,7 +308,7 @@ class PredictionService:
             predicted_arrival_time = last_timestamp + timedelta(seconds=predicted_time)
 
             return {
-                "current_speed": speed,
+                "average_speed": speed,
                 "predicted_arrival_time": predicted_arrival_time,
                 "predicted_time_seconds": predicted_time,
                 "last_known_distance_traveled": absolute_last_point_distance,
@@ -353,7 +353,7 @@ class PredictionService:
             return {
                 "latitude": latitude_predicted,
                 "longitude": longitude_predicted,
-                "current_speed": speed,
+                "average_speed": speed,
                 "predicted_arrival_time": predicted_arrival_time,
                 "last_known_distance_traveled": absolute_last_point_distance,
                 "predicted_time_seconds": predicted_time

@@ -13,5 +13,5 @@ class TimePredictionResponse(BaseModel):
     target_distance_traveled: Optional[float]
     predicted_arrival_time: Optional[datetime]  # ISO format datetime
     predicted_seconds_to_arrival: Optional[float]
-    current_speed: Optional[float]  # km/h
+    average_speed: Optional[float]  # km/h
     message: str

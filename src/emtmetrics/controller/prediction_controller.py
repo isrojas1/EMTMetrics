@@ -52,7 +52,7 @@ async def predict_future_position(request: PositionPredictionRequest, service=De
             predicted_distance_traveled=result["distance_traveled"],
             target_arrival_time=result["target_arrival_time"],
             target_seconds_to_arrival=request.prediction_time_seconds,
-            current_speed=result["current_speed"],
+            average_speed=result["average_speed"],
             message="Position prediction calculated successfully"
         )
 
@@ -90,7 +90,7 @@ async def predict_arrival_time_by_coords(request: TimePredictionByCoordinatesReq
             target_location=request.target_location,
             predicted_arrival_time=result["predicted_arrival_time"],
             predicted_seconds_to_arrival=result["predicted_time_seconds"],
-            current_speed=result["current_speed"],
+            average_speed=result["average_speed"],
             message="Prediction calculated successfully"
         )
     except HTTPException as http_exc:
@@ -129,7 +129,7 @@ async def predict_arrival_time_by_distance(request: TimePredictionByDistanceTrav
             target_distance_traveled=request.target_location,
             predicted_arrival_time=result["predicted_arrival_time"],
             predicted_seconds_to_arrival=result["predicted_time_seconds"],
-            current_speed=result["current_speed"],
+            average_speed=result["average_speed"],
             message="Prediction calculated successfully"
         )
     except HTTPException as http_exc:
@@ -168,7 +168,7 @@ async def predict_arrival_time_by_stop(request: TimePredictionByStopRequest, ser
             target_distance_traveled=result["target_distance_traveled"],
             predicted_arrival_time=result["predicted_arrival_time"],
             predicted_seconds_to_arrival=result["predicted_time_seconds"],
-            current_speed=result["current_speed"],
+            average_speed=result["average_speed"],
             message="Prediction calculated successfully"
         )
 
