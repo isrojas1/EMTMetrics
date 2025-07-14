@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import FastAPI
 
@@ -11,10 +12,11 @@ from .utils.mysql_manager import MySQLManager
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-
 # Initialize DB managers
-influxdb_manager = InfluxDBManager("http://192.168.32.131:30716", "opentwins")
-mysql_manager = MySQLManager("127.0.0.1", "root", "tfgautobuses", "emtdata")
+influxdb_manager = InfluxDBManager(os.environ.get("INFLUXDB_URL"), os.environ.get("INFLUXDB_ORGANIZATION"),
+                                   os.environ.get("INFLUXDB_TOKEN"))
+mysql_manager = MySQLManager(os.environ.get("MYSQL_HOSTNAME"), os.environ.get("MYSQL_USER"),
+                             os.environ.get("MYSQL_PASSWORD"), os.environ.get("MYSQL_DATABASE"))
 
 # Initialize services
 prediction_service = PredictionService(influxdb_manager, mysql_manager)
@@ -24,7 +26,7 @@ app = FastAPI(title="Bus Prediction API", description="Simple API for bus predic
 app.include_router(prediction_router)
 app.include_router(details_router)
 
-
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

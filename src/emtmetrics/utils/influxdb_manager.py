@@ -1,12 +1,11 @@
 from influxdb_client import InfluxDBClient, QueryApi
 from influxdb_client.client.exceptions import InfluxDBError
-import os
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 
 
 class InfluxDBManager:
-    def __init__(self, url: str, org: str, bucket: str = "default"):
+    def __init__(self, url: str, org: str, token: str, bucket: str = "default"):
         """
         Simplified InfluxDB manager
 
@@ -17,7 +16,7 @@ class InfluxDBManager:
         self.url = url
         self.org = org
         self.bucket = bucket
-        self.token = os.environ.get("INFLUXDB_TOKEN")
+        self.token = token
 
         if not self.token:
             logging.error("INFLUXDB_TOKEN environment variable not set")
