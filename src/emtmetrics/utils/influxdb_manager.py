@@ -158,7 +158,7 @@ class InfluxDBManager:
         """
         Get last value for a specific field
         """
-        query = self._build_last_value_query(bus_id, field, alias)
+        query = self._build_last_value_query(bus_id, field)
         tables = self._execute_query(query)
 
         # Extract value from results
@@ -196,7 +196,7 @@ class InfluxDBManager:
                 |> sort(columns: ["_time"])
         '''
 
-    def _build_last_value_query(self, bus_id: str, field: str, alias: str) -> str:
+    def _build_last_value_query(self, bus_id: str, field: str) -> str:
         """Build last value query"""
         return f'''
             from(bucket: "{self.bucket}")
@@ -206,7 +206,7 @@ class InfluxDBManager:
                 |> filter(fn: (r) => r["thingId"] == "{bus_id}")
                 |> last()
                 |> map(fn: (r) => ({{
-                    valor: "{alias}:" + string(v: r._value)
+                    valor: string(v: r._value)
                 }}))
         '''
 

@@ -1,10 +1,6 @@
-import logging
 from datetime import datetime
 from typing import Any, List, Tuple
 from dataclasses import dataclass
-
-
-logger = logging.getLogger()
 
 
 @dataclass

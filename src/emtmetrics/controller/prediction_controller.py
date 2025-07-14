@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from ..model.location_request import LocationRequest
@@ -6,13 +8,15 @@ from ..model.position_prediction_response import PositionPredictionResponse
 from ..model.time_prediction_request import TimePredictionByCoordinatesRequest, TimePredictionByDistanceTraveledRequest, \
     TimePredictionByStopRequest
 from ..model.time_prediction_response import TimePredictionResponse
-from ..service.prediction_service import *
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
+
 def get_service():
-    from ..app import service
-    return service
+    from ..app import prediction_service
+    return prediction_service
 
 @router.get("/")
 async def root():
@@ -156,12 +160,14 @@ async def predict_arrival_time_by_stop(request: TimePredictionByStopRequest, ser
 
         return TimePredictionResponse(
             bus_id=request.bus_id,
-            predicted_location=LocationRequest(
+            last_known_distance_traveled=result["last_known_distance_traveled"],
+            target_location=LocationRequest(
                 latitude=result["latitude"],
                 longitude=result["longitude"]
             ),
-            predicted_arrival_time="placeholder TODO",
-            seconds_to_arrival=result["predicted_time_seconds"],
+            target_distance_traveled=result["target_distance_traveled"],
+            predicted_arrival_time=result["predicted_arrival_time"],
+            predicted_seconds_to_arrival=result["predicted_time_seconds"],
             current_speed=result["current_speed"],
             message="Prediction calculated successfully"
         )

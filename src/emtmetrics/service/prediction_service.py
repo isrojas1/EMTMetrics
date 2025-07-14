@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
+from ..model.bus_details_response import BusDetailsResponse
 from ..model.prediction_service_aux_data import TravelMetrics, AbsoluteDistances, PositionPair, CorrectedPositions, \
     SegmentDistances, RouteData
 from ..model.location_request import LocationRequest
@@ -11,7 +12,7 @@ from ..utils.influxdb_manager import InfluxDBManager
 from ..utils.mysql_manager import MySQLManager
 from ..utils.calculations import *
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 class PredictionService:
@@ -26,8 +27,8 @@ class PredictionService:
             return None
 
         try:
-            line_id = route_info['linea'].split(':')[-1]
-            direction_id = route_info['sentido'].split(':')[-1]
+            line_id = route_info['linea']
+            direction_id = route_info['sentido']
         except (IndexError, TypeError):
             return None
 
@@ -366,11 +367,77 @@ class PredictionService:
                                                  initial_index: int = 0, last_index: int = -1) -> Dict[str, Any]:
         try:
             route_info = self.influxdb_manager.get_bus_route(bus_id)
-            bus_shape = self.get_bus_shape(bus_id)
 
-            self.influxdb_manager.get_stops_for_line_and_direction()
+            stops = self.influxdb_manager.get_stops_for_line_and_direction(route_info["linea"], route_info["sentido"])
+            stop = next((stop_dict for stop_dict in stops if stop_dict['orden'] == stop_order), None)
 
+            if not stop:
+                raise HTTPException(status_code=400, detail=f"Stop with order {stop_order} was not found for route "
+                                                            f"{route_info["linea"]} and direction "
+                                                            f"{route_info["sentido"]}.")
+
+            target_location = LocationRequest(
+                latitude=stop["latitud"],
+                longitude=stop["longitud"]
+            )
+
+            result = self.calculate_predicted_arrival_by_coords(
+                bus_id,
+                target_location
+            )
+            result["latitude"] = stop["latitud"]
+            result["longitude"] = stop["longitud"]
+
+            return result
 
         except Exception as e:
             logger.error(f"Error calculating arrival time: {e}")
             raise
+
+    def get_bus_details(self, bus_id: str) -> Any:
+        """Get bus line details for the given bus ID"""
+
+        # Line and direction
+        route_info = self.influxdb_manager.get_bus_route(bus_id)
+        route_data = self._get_route_data(bus_id)
+        if not route_info.get('linea') or not route_info.get('sentido'):
+            return None
+        try:
+            line_id = route_info['linea']
+            direction_id = route_info['sentido']
+        except (IndexError, TypeError):
+            return None
+
+        # List of stops
+        stops = self.influxdb_manager.get_stops_for_line_and_direction(line_id, direction_id)
+
+        last_position = self.influxdb_manager.bus_positions(bus_id)[-1] # TODO: no data? exception
+
+        # Last distance traveled
+        point_to_predict = (last_position["latitude"], last_position["longitude"])
+        point_to_predict_corrected, _, segment_to_predict = correct_position(route_data.route_coordinates,
+                                                                             point_to_predict)
+
+        distance_traveled_segment_to_predict_point_a = self.mysql_manager.dist_traveled(route_data.bus_shape,
+                                                                                        segment_to_predict[0][0],
+                                                                                        segment_to_predict[0][1])
+        distance_traveled_segment_to_predict_point_b = self.mysql_manager.dist_traveled(route_data.bus_shape,
+                                                                                        segment_to_predict[1][0],
+                                                                                        segment_to_predict[1][1])
+        distance_segment_to_predict = distance_traveled_segment_to_predict_point_b - distance_traveled_segment_to_predict_point_a
+
+        distance_to_predict_relative = calculate_distance_along_route(
+            segment_to_predict[0], segment_to_predict[1], point_to_predict_corrected, distance_segment_to_predict
+        )
+
+        absolute_point_to_predict_distance = distance_traveled_segment_to_predict_point_a + distance_to_predict_relative
+
+        return BusDetailsResponse(
+            line=float(line_id),
+            direction=float(direction_id),
+            stops=stops,
+            last_position=LocationRequest(latitude=point_to_predict_corrected[0],
+                                          longitude=point_to_predict_corrected[1]),
+            last_distance_traveled=absolute_point_to_predict_distance,
+            total_route_distance=route_data.distance_traveled_list[-1]
+        )
