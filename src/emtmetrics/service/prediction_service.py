@@ -34,7 +34,7 @@ class PredictionService:
 
         return self.mysql_manager.get_bus_shape(line_id, direction_id)
 
-    def _get_route_data(self, bus_id: str) -> RouteData:
+    def get_route_data(self, bus_id: str) -> RouteData:
         """Extract and prepare route data for calculations"""
         bus_shape = self.get_bus_shape(bus_id)
         if not bus_shape:
@@ -209,7 +209,7 @@ class PredictionService:
         specific responsibilities to focused helper methods.
         """
         try:
-            route_data = self._get_route_data(bus_id)
+            route_data = self.get_route_data(bus_id)
             bus_positions = self._get_bus_positions(bus_id)
             position_pair = self._extract_position_pair(bus_positions, first_point_index, last_point_index)
             corrected_positions = self._correct_positions(route_data, position_pair)
@@ -272,7 +272,7 @@ class PredictionService:
             speed, last_timestamp, absolute_last_point_distance, distance_traveled_list, bus_shape = self.calculate_average_speed(
                 bus_id,
                 initial_index, last_index)
-            route_data = self._get_route_data(bus_id)
+            route_data = self.get_route_data(bus_id)
 
             # Predict time to achieve next position
             point_to_predict = (location.latitude, location.longitude)
@@ -399,7 +399,7 @@ class PredictionService:
 
         # Line and direction
         route_info = self.influxdb_manager.get_bus_route(bus_id)
-        route_data = self._get_route_data(bus_id)
+        route_data = self.get_route_data(bus_id)
         if not route_info.get('linea') or not route_info.get('sentido'):
             return None
         try:
